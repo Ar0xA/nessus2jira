@@ -50,11 +50,11 @@ def send_to_jira(json_data, args):
         hash_data = ""
         if json_data.compliance:
             #we create the unique value from
-            #taskid, hostname, hostscanend and compliancecheckname
-            hash_data = json_data.taskid + json_data.hostname + str(json_data.hostscanend) + json_data.compliancecheckname
+            #taskid, hostname and compliancecheckname
+            hash_data = json_data.taskid + json_data.hostname + json_data.compliancecheckname
         else:
             #its not a compliance item, so now we use other data for the hash
-            hash_data = json_data.taskid + json_data.hostname + str(json_data.hostscanend) + json_data.pluginid + json_data.pluginname
+            hash_data = json_data.taskid + json_data.hostname + json_data.pluginid + json_data.pluginname
         print (hash_data)
         if len(hash_data) > 1:
             hashval = hashlib.sha512(str(hash_data).encode('utf-8')).hexdigest()
@@ -62,8 +62,13 @@ def send_to_jira(json_data, args):
             print("issue creating valid hash value, panic")
             sys.exit(1)
         print (hashval)
-        #ok so this hashval
-
+        #ok so this hashval, lets see if we can find it already
+        #the hash value will go into the field of args.jirahashvalue
+        #project key will be stored in args.jiraprojectkey
+        searchStr = "project=" + args.jiraprojectkey + " and hashvalue="+ args.jirahasvalue 
+        jiratickets= jira.search_issues(searchStr)
+        #result should be 0 if nothing, or 1..anything else is a problem
+        
     #if it exists, we check the date of the last update and the date of the scan
     #if the scan data is newer than the last update -> add comment
     #else give error
@@ -140,7 +145,7 @@ def parse_to_json(nessus_xml_data, args):
             host_info.hostscanend = host.find('tag', attrs={'name': 'HOST_END'}).get_text()
             host_info.hostscanend = parse(host_info.hostscanend)
             host_info.hostscanend =  host_info.hostscanend - timedelta(hours=timeoffset)
-            host_info["@timestamp"] = host_info.hostscanend
+            #host_info["@timestamp"] = host_info.hostscanend
 
             #fqdn might be optional
             host_fqdn = host.find('tag', attrs={'name': 'host-fqdn'})
@@ -321,7 +326,6 @@ def parse_to_json(nessus_xml_data, args):
                         send_to_jira(host_info, args)
                     else:
                         print("Severity %s is lower than treshhold, no jira ticket" % host_info.severity)
-                    #post_to_ES(json_data, args, task_id)
             except Exception as e:
                 print ("Error:")
                 print (e)
@@ -337,13 +341,16 @@ def parse_args():
         default = 'http://127.0.0.1')
     parser.add_argument('-jp', '--jiraport', help = 'elasticsearch port',
         default = 8080)
-    parser.add_argument('-jk','--jiraprojectkey', help='Name of the project key',
-        default = 'nessusdata')
+    parser.add_argument('-jpk','--jiraprojectkey', help='Name of the project key',
+        default = 'TES')
+#    parser.add_argument('-jit','--jiraissuetype', help='Issue type of the ticket',
+#        default = 'Vulnerability')
+    parser.add_arguments('-jhv', '--jirahashvalue', help ='Hash value of finding', default= 'HashValue')
     parser.add_argument('-t', '--type', help = 'What type of result to parse the file for.', choices = ['both', 'vulnerability','compliance' ],
         default = 'both')
     parser.add_argument('-l', '--level', help='from what level do we want to create tickets', choices =['INFO','LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], default = 'HIGH')
     parser.add_argument('-f','--fake', help = 'Do everything but actually send data to jira', action = 'store_true')
-    group.add_argument('-c', '--config', help = 'Config file for script to read settings from. Overwrites all other cli parameters', default = None)
+    #group.add_argument('-c', '--config', help = 'Config file for script to read settings from. Overwrites all other cli parameters', default = None)
     args = parser.parse_args()
     return args
 
