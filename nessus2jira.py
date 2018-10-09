@@ -29,7 +29,7 @@ import hashlib
 
 def auth_to_jira(args):
     try:
-        jira = JIRA(args.jiraserver + ':' + str(args.jiraport), basic_auth =('test',''))
+        jira = JIRA(args.jiraserver + ':' + str(args.jiraport), basic_auth =('test','allemaal'))
     except Exception as ex:
         template = "An exception of type {0} occurred. Arguments:\n{1!r}"
         message = template.format(type(ex).__name__, ex.args)
@@ -46,7 +46,7 @@ def send_to_jira(json_data, args):
         #now we look for if the item already exists
         # we do this by finding if its a compliance item or not
         # due to different fields
-        print (json_data.compliance)
+#        print (json_data.compliance)
         hash_data = ""
         if json_data.compliance:
             #we create the unique value from
@@ -55,24 +55,57 @@ def send_to_jira(json_data, args):
         else:
             #its not a compliance item, so now we use other data for the hash
             hash_data = json_data.taskid + json_data.hostname + json_data.pluginid + json_data.pluginname
-        print (hash_data)
+#        print (hash_data)
         if len(hash_data) > 1:
             hashval = hashlib.sha512(str(hash_data).encode('utf-8')).hexdigest()
         else:
             print("issue creating valid hash value, panic")
             sys.exit(1)
-        print (hashval)
+#        print (hashval)
         #ok so this hashval, lets see if we can find it already
         #the hash value will go into the field of args.jirahashvalue
         #project key will be stored in args.jiraprojectkey
-        searchStr = "project=" + args.jiraprojectkey + " and hashvalue="+ args.jirahasvalue 
+        print ("Searching if hashvalue exists")
+        searchStr = "project=" + args.jiraprojectkey + " and " +args.jirahashvalue + "~" +hashval
         jiratickets= jira.search_issues(searchStr)
-        #result should be 0 if nothing, or 1..anything else is a problem
-        
+        if len(jiratickets) == 0:
+            print ("Hash not found, lets create ticket")
+            #first lets figure out the issue type
+            #and fill the data as it should
+            issue_dict ={}
+            scanTime = json_data.hostscanend.strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+            print (scanTime)
+            if json_data.compliance:
+                print ("Issue type: compliance")
+                issue_dict = {
+                    'project': {'key': args.jiraprojectkey},
+                    'issuetype': {'name': 'Compliance'},
+                    'summary': json_data.compliancecheckname,
+                    'description': json_data.description,
+                    'customfield_10107': hashval,
+                    'customfield_10108': scanTime,
+                    'customfield_10109': json_data.hostname
+		}
+                print (issue_dict)
+                new_issue = jira.create_issue(fields = issue_dict)
+                print (new_issue)
+            else:
+                print ("Issue type: vulnerability")
+        else:
+            print ("hash value found, we need to check comments and probably update those")
+            #ok so we get all comments, and see if theres one with the current scanTime
+            print ("Found hash in %s, getting comments" % (jiratickets[0]))
+            issue = jira.issue(jiratickets[0])
+            print(issue.raw['fields'])
+#            print (issue.fields.customfield_10109)
+            comments= jira.comments(issue)
+            print (comments)
+            #if no comments, check scandate wtih current scandate
+            
     #if it exists, we check the date of the last update and the date of the scan
     #if the scan data is newer than the last update -> add comment
     #else give error
-    
+
     #if the item isnt found, create a new ticket.
     sys.exit(1)
 
@@ -345,7 +378,7 @@ def parse_args():
         default = 'TES')
 #    parser.add_argument('-jit','--jiraissuetype', help='Issue type of the ticket',
 #        default = 'Vulnerability')
-    parser.add_arguments('-jhv', '--jirahashvalue', help ='Hash value of finding', default= 'HashValue')
+    parser.add_argument('-jhv', '--jirahashvalue', help ='Hash value of finding', default= 'HashValue')
     parser.add_argument('-t', '--type', help = 'What type of result to parse the file for.', choices = ['both', 'vulnerability','compliance' ],
         default = 'both')
     parser.add_argument('-l', '--level', help='from what level do we want to create tickets', choices =['INFO','LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], default = 'HIGH')
