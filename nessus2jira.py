@@ -33,13 +33,13 @@ def auth_to_jira(args):
     except Exception as ex:
         template = "An exception of type {0} occurred. Arguments:\n{1!r}"
         message = template.format(type(ex).__name__, ex.args)
-        print (message)
+        #print (message)
         return None
     return jira
 
 def send_to_jira(json_data, args):
     #ok so first we auth to jira
-    print (json_data)
+    #print (json_data)
     jira = auth_to_jira(args)
     if jira:
         print ("Valid Jira session") 
@@ -68,13 +68,13 @@ def send_to_jira(json_data, args):
         print ("Searching if hashvalue exists")
         searchStr = "project=" + args.jiraprojectkey + " and " +args.jirahashvalue + "~" +hashval
         jiratickets= jira.search_issues(searchStr)
+        scanTime = json_data.hostscanend.strftime("%Y-%m-%dT%H:%M:%S.000+0000")
         if len(jiratickets) == 0:
             print ("Hash not found, lets create ticket")
             #first lets figure out the issue type
             #and fill the data as it should
             issue_dict ={}
-            scanTime = json_data.hostscanend.strftime("%Y-%m-%dT%H:%M:%S.000+0000")
-            print (scanTime)
+            #print (scanTime)
             if json_data.compliance:
                 print ("Issue type: compliance")
                 issue_dict = {
@@ -86,9 +86,9 @@ def send_to_jira(json_data, args):
                     'customfield_10108': scanTime,
                     'customfield_10109': json_data.hostname
 		}
-                print (issue_dict)
+                #print (issue_dict)
                 new_issue = jira.create_issue(fields = issue_dict)
-                print (new_issue)
+                print ("issue %s created." % (new_issue))
             else:
                 print ("Issue type: vulnerability")
         else:
@@ -96,17 +96,38 @@ def send_to_jira(json_data, args):
             #ok so we get all comments, and see if theres one with the current scanTime
             print ("Found hash in %s, getting comments" % (jiratickets[0]))
             issue = jira.issue(jiratickets[0])
-            print(issue.raw['fields'])
+#            print(issue.raw['fields'])
 #            print (issue.fields.customfield_10109)
             comments= jira.comments(issue)
-            print (comments)
+#            print (comments)
             #if no comments, check scandate wtih current scandate
-            
-    #if it exists, we check the date of the last update and the date of the scan
-    #if the scan data is newer than the last update -> add comment
-    #else give error
+            issuescantime = issue.raw['fields']['customfield_10108']
+            timeoffset = int((time.localtime().tm_gmtoff)/3600)
+            tscanTime = parse(scanTime).strftime("%Y-%m-%dT%H:%M:%S")
+            tissuescantime = (parse(issuescantime) - timedelta(hours=timeoffset)).strftime("%Y-%m-%dT%H:%M:%S")
+            txtstring = "Issue also found in scan of " + str(tscanTime)
 
-    #if the item isnt found, create a new ticket.
+            if len (comments) == 0:
+                print ("No comment, checks scandate")
+                #ok so now...is the time of this issue different than the scantime? if so...we should add the first comment
+                if tscanTime == tissuescantime:
+                    print ("Result already in ticket, skipping")
+                else:
+                    print ("Time not found, adding comment")
+                    comment = jira.add_comment(issue,txtstring)
+                    print ("Comment %s added to ticket %s" % (comment, issue.txtstring))
+            #if not..we're just running the same scan import for the second time.
+            else:
+                print ("There are comments already, so check comments. for the one with the current scanline")
+                double = False
+                for comment in comments:
+                    if comment.body == txtstring:
+                        print ("Results already in ticket, skipping")
+                        double = True
+                if not double:
+                    print ("No double comment, so lets add a new one!")
+                    comment = jira.add_comment(issue,txtstring)
+                    print ("Comment %s added to ticket %s" % (comment, issue.txtstring))
     sys.exit(1)
 
 
