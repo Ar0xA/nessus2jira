@@ -18,6 +18,49 @@ def auth_to_jira(args):
         return None
     return jira
 
+
+#we check all tickets for a specific scan
+#if not created or updated with comment from this scan the ticket is no longer valid
+#add comment "Finding no longer valid from scan xxx"
+#change ticket status to Done
+def parse_remaining_tickets (json_data, args):
+    jira=auth_to_jira(args)
+    if jira:
+        print ("Valid Jira Session")
+        scanID = json_data.taskid
+        #search all tickets with this scan id
+        searchStr = "project=" + args.jiraprojectkey + " and status != Done and " +args.jirascanid + "~" +scanID
+        jiratickets= jira.search_issues(searchStr)
+        scanTime = json_data.hostscanend.strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+        if len(jiratickets) > 0:
+            for issue in jiratickets:
+                #when was ticket last updated
+                ticketUpdated = issue.fields.updated
+                print ("Issue was updated: %s" %(ticketUpdated))
+                #If the updated value is OLDER than the current scan date, the ticket item
+                #was not present in the current scan, hence a comment should be added
+                #and ticket state should be changed to done
+                ticketUpdatedTime = ticketUpdated.strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+                if ticketUpdatedTime < scanTime:
+                    print ("Issue")
+                    print ("Issue item not found, adding comment")
+                    tscanTime = parse(scanTime).strftime("%Y-%m-%dT%H:%M:%S")
+                    txtstring = "Issue not found in scan of " + str(tscanTime) + ". Closing issue"
+                    comment = jira.add_comment(issue,txtstring)
+                    print ("Comment %s added to ticket %s" % (comment, issue.txtstring))
+                    
+                sys.exit(1)
+        else:
+            print ("No tickets found for Task id: %s " % (scanID))
+            sys.exit(1)
+
+
+#we have scan results, we now look for tickets
+#if no ticket exists, we make a ticket
+#if ticket exists, we check if the ticket was for this scan or an older scan
+#if ticket is from older scan, we check for comment field for this scan
+#if no comment field for this scan, add new comment field
+#todo: if ticket was closed then reopen.
 def send_to_jira(json_data, args):
     #ok so first we auth to jira
     jira = auth_to_jira(args)
@@ -94,8 +137,7 @@ def send_to_jira(json_data, args):
                     print ("No double comment, so lets add a new one!")
                     comment = jira.add_comment(issue,txtstring)
                     print ("Comment %s added to ticket %s" % (comment, issue.txtstring))
-    sys.exit(1)
-
+    #sys.exit(1)
 
 def parse_to_json(nessus_xml_data, args):
 
@@ -328,6 +370,7 @@ def parse_to_json(nessus_xml_data, args):
 
                     if not args.fake:
                         send_to_jira(host_info, args)
+                        parse_remaining_tickets (host_info, args)
                 except Exception as e:
                     print ("Error:")
                     print (e)
@@ -353,7 +396,8 @@ def parse_args():
         default = 'customfield_10108')
     parser.add_argument('-jhv','--jirahostname', help='Name of the customfield hostname identifier',
         default = 'customfield_10109')
-    parser.add_argument('-jhv', '--jirahashvalue', help ='Hash value of finding', default= 'HashValue')
+    parser.add_argument('-jsi', '--jirascanid', help ='ID of the scan',
+        default= 'customfield_10110')
     parser.add_argument('-t', '--type', help = 'What type of result to parse the file for.', choices = ['both', 'vulnerability','compliance' ],
         default = 'both')
     parser.add_argument('-l', '--level', help='from what level do we want to create tickets', choices =['INFO','LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], default = 'HIGH')
